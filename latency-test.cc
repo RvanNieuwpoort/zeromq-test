@@ -130,6 +130,15 @@ int main(int argc, char* args[]) {
     // running locally, for testing purposes
     cout << "local run" << endl;
     strcpy(mastername, hostname);
+
+    int IamServer = atoi(args[0]);
+    if(IamServer) {
+      cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the server" << endl;
+      server();
+    } else {
+      cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the client" << endl;
+      client(mastername);
+    }
   } else {
     if (getmastername(mastername)) {
       perror("getmastername");
