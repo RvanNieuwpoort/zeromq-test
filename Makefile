@@ -1,7 +1,7 @@
 CC		= g++
-CC_FLAGS	= -g
+CC_FLAGS	= -g -Wall
 
-SOURCES	= latency-test.cc timer.cc
+SOURCES	= latency-test.cc
 
 OBJECTS	= $(SOURCES:%.cc=%.o)
 
