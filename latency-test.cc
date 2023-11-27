@@ -6,7 +6,6 @@
 #include <limits.h>
 #include <unistd.h>
 
-#define NR_TESTS 100
 #define MAX_BUFFER (1024*1024)
 
 using namespace std;
@@ -17,45 +16,72 @@ int server() {
   assert (context);
   void *responder = zmq_socket(context, ZMQ_REP);
   assert (responder);
-  assert(zmq_bind(responder, "tcp://*:5555") == 0);
+  int rc = zmq_bind(responder, "tcp://*:5556");
+  if(rc) {
+    cout << "bind failed, rc = " << rc << endl;
+    perror ("oops: ");
+    exit(1);
+  }
   
   char* buffer = new char[MAX_BUFFER];
-  int size = 0;
-  int nrTests = 0;
+  int size = -1;
+  int nrTests = -1;
   
   while(true) {
     int rc = zmq_recv(responder, &size, sizeof(int), 0);
-    if(rc) {
-      cout << "recv failed rc = " << rc << endl;
+    if(rc != sizeof(int)) {
+      cout << "recv of size failed rc = " << rc << endl;
       perror ("oops: ");
       exit(1);
-    }
-
+    }    
     if(size < 0) {
       delete[] buffer;
       return 0;
     }
 
-    assert(zmq_recv(responder, &nrTests, sizeof(int), 0) == 0);
+    
+    // zmq forces alternating between send and recv, so we have to send an ack.
+    zmq_send(responder, buffer, 1, 0);
 
+    
+    rc = zmq_recv(responder, &nrTests, sizeof(int), 0);
+    if(rc != sizeof(int)) {
+      cout << "recv of nrTests failed rc = " << rc << endl;
+      perror ("oops: ");
+      exit(1);
+    }
+    // zmq forces alternating between send and recv, so we have to send an ack.
+    zmq_send(responder, buffer, 1, 0);
+    
     cout << "server: running test with size " << size << " and " << nrTests << " iterations" << endl;
-    return 0;
-    /*
+
     for(int i=0; i<nrTests; i++) {
       zmq_recv(responder, buffer, size, 0);
       zmq_send(responder, buffer, size, 0);
     }
-    */
   }
 }
 
 int runTest(int size, int nrTests, void* requester) {
   auto buffer = new char[size];
 
-  cout << "client: size = " << size << " nrTests = " << nrTests << endl;
-
-  zmq_send(requester, &size, sizeof(int), 0);
-  zmq_send(requester, &nrTests, sizeof(int), 0);
+  int rc = zmq_send(requester, &size, sizeof(int), 0);
+  if(rc != sizeof(int)) {
+    cout << "send of size failed rc = " << rc << endl;
+    perror ("oops: ");
+    exit(1);
+  }
+  // zmq forces alternating between send and recv, so we have to get an ack.
+  zmq_recv(requester, buffer, 1, 0);
+  
+  rc = zmq_send(requester, &nrTests, sizeof(int), 0);
+  if(rc != sizeof(int)) {
+    cout << "send of nrTests failed rc = " << rc << endl;
+    perror ("oops: ");
+    exit(1);
+  }
+  // zmq forces alternating between send and recv, so we have to get an ack.
+  zmq_recv(requester, buffer, 1, 0);
 
   auto begin = std::chrono::high_resolution_clock::now();
   for (int i=0; i<nrTests; i++) {
@@ -65,10 +91,11 @@ int runTest(int size, int nrTests, void* requester) {
   auto end = std::chrono::high_resolution_clock::now();
 
   auto nanos = chrono::duration_cast<chrono::nanoseconds>(end-begin).count();
-  double throughput = (((double) (nrTests * size)) / (1024.0 * 1024.0 * 1024.0)) / (nanos * 1000000000.0);
+  double seconds = ((double)nanos) / 1000000000.0;
+  double mbytes = ((double)nrTests * size) / (1024.0 * 1024.0);
+  double throughput = mbytes / seconds;
 
-  //  cout << "total time: " << nanos << " ns" << endl;
-  cout << "size: " << size << " roundtrip time: " << (nanos / nrTests) << " ns throughput " << throughput << " GB/s" << endl;
+  cout << "size: " << size << " roundtrip time: " << (nanos / nrTests) << " ns throughput " << throughput << " MB/s" << endl;
 
   delete[] buffer;
   return 0;
@@ -78,12 +105,14 @@ int client(char* host) {
   void *context = zmq_ctx_new ();
   void *requester = zmq_socket (context, ZMQ_REQ);
   char dest[HOST_NAME_MAX + 500];
-  sprintf(dest, "tcp://%s:5555", host);
+  sprintf(dest, "tcp://%s:5556", host);
   cout << "Connecting to " << dest << endl;
   zmq_connect(requester, dest);
 
-  runTest(1, NR_TESTS, requester);
-
+  for(int size=1; size<=1024*1024; size *= 2) {
+    runTest(size,   10000, requester);
+  }
+  
   // send exit signal to the server
   int tmp = -1;
   zmq_send(requester, &tmp, sizeof(int), 0);
@@ -131,7 +160,7 @@ int main(int argc, char* args[]) {
     cout << "local run" << endl;
     strcpy(mastername, hostname);
 
-    int IamServer = atoi(args[0]);
+    int IamServer = atoi(args[1]);
     if(IamServer) {
       cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the server" << endl;
       server();
@@ -144,15 +173,14 @@ int main(int argc, char* args[]) {
       perror("getmastername");
       return EXIT_FAILURE;
     }  
-  }
 
-  if(!strcmp(mastername, hostname)) {
-    cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the server" << endl;
-    server();
-  } else {
-    cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the client" << endl;
-    client(mastername);
+    if(!strcmp(mastername, hostname)) {
+      cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the server" << endl;
+      server();
+    } else {
+      cout << "mastername = " << mastername << ", hostname = " << hostname << ": I am the client" << endl;
+      client(mastername);
+    }
   }
-
   return 0;
 }
