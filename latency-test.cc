@@ -53,7 +53,7 @@ int server() {
     // zmq forces alternating between send and recv, so we have to send an ack.
     zmq_send(responder, buffer, 1, 0);
     
-    cout << "server: running test with size " << size << " and " << nrTests << " iterations" << endl;
+    //    cout << "server: running test with size " << size << " and " << nrTests << " iterations" << endl;
 
     for(int i=0; i<nrTests; i++) {
       zmq_recv(responder, buffer, size, 0);
