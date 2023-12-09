@@ -6,7 +6,7 @@
 #include <limits.h>
 #include <unistd.h>
 
-#define MAX_BUFFER (1024*1024)
+#define MAX_BUFFER (1024*1024*16)
 
 using namespace std;
 
@@ -109,7 +109,7 @@ int client(char* host) {
   cout << "Connecting to " << dest << endl;
   zmq_connect(requester, dest);
 
-  for(int size=1; size<=1024*1024; size *= 2) {
+  for(int size=1; size<=MAX_BUFFER; size *= 2) {
     runTest(size,   10000, requester);
   }
   
